@@ -107,8 +107,6 @@ def _init_instance_environment():
                                 m_val = str(pdata.get("magic_number", "")).strip()
                                 if pk == "XAUUSD" and m_val == "20260501":
                                     pdata["magic_number"] = "20260601"
-                                elif pk == "BTCUSD" and m_val == "20260502":
-                                    pdata["magic_number"] = "20260602"
                     if str(data.get("magic_number", "")) == "20260501":
                         data["magic_number"] = "20260601"
                     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -121,7 +119,6 @@ def _init_instance_environment():
 _init_instance_environment()
 
 SYMBOL_XAU = "XAUUSDm"
-SYMBOL_BTC = "BTCUSDm"
 
 MODEL_CONFIGS = {
     "AI-Gold-Exness (Chuyên sâu Exness)": {
@@ -190,50 +187,6 @@ DEFAULT_PROFILE_SETTINGS = {
         "rev_consensus": "75",
         "rev_min_move": "0",
         "be_plus_price": "0.2",
-        "basket_tp_usd": "0",
-        "basket_cooldown_mins": "15",
-        "max_hold_mins": "0",
-        "max_hold_action": "Chốt lời (nếu lãi) & Dời TP về hòa (nếu lỗ)",
-        "daily_tp_usd": "0",
-        "daily_sl_usd": "0",
-        "max_consec_loss": "0",
-        "cooldown_mins": "30",
-        "fast_sl_cooldown_mins": "15",
-        "engine": "Chạy trực tiếp máy Local",
-        "model": "AI-base (102.3M - Mạnh nhất)",
-        "hf_space": "tranvankha2807/Kronos_Xau",
-        "hf_token": "",
-        "lookback": "450",
-        "pred_len": "6",
-        "realtime_chart": True,
-    },
-    "BTCUSD": {
-        "symbol": "BTCUSDm",
-        "analysis_tf": "M15",
-        "tf": "M5",
-        "lot": "0.01",
-        "max_pos": "3",
-        "magic_number": "20260602" if INSTANCE_ID else "20260502",
-        "scenarios": "8",
-        "consensus": "75",
-        "max_dispersion": "2.5",
-        "min_move": "60.0",
-        "max_spread": "30.0",
-        "sl_atr": "1.5",
-        "sl_buffer": "20.0",
-        "max_sl_price": "350.0",
-        "rr": "2.0",
-        "min_entry_spacing": "50.0",
-        "entry_mode": "Chỉ nhồi khi đã khóa lãi lệnh trước (Risk-Free)",
-        "one_order_per_candle": True,
-        "auto_be": True,
-        "be_trigger_r": "1.0",
-        "auto_trail": True,
-        "trail_dist_r": "0.35",
-        "auto_rev_close": True,
-        "rev_consensus": "75",
-        "rev_min_move": "0",
-        "be_plus_price": "5.0",
         "basket_tp_usd": "0",
         "basket_cooldown_mins": "15",
         "max_hold_mins": "0",
@@ -466,10 +419,10 @@ class KronosDesktopApp:
         self._mt5_lock = threading.RLock()
         self._log_file_lock = threading.Lock()
         self._order_guard_lock = threading.Lock()
-        self._order_in_flight = {"XAUUSD": False, "BTCUSD": False}
-        self._last_order_open_mono = {"XAUUSD": 0.0, "BTCUSD": 0.0}
-        self._last_order_candle_ts = {"XAUUSD": None, "BTCUSD": None}
-        self._auto_worker_token = {"XAUUSD": 0, "BTCUSD": 0}
+        self._order_in_flight = {"XAUUSD": False}
+        self._last_order_open_mono = {"XAUUSD": 0.0}
+        self._last_order_candle_ts = {"XAUUSD": None}
+        self._auto_worker_token = {"XAUUSD": 0}
         self._last_mt5_order_mono = 0.0
         self._ai_queue = queue.Queue()
         self._ai_queue_lock = threading.Lock()
@@ -481,15 +434,12 @@ class KronosDesktopApp:
         self.active_profile_key = "XAUUSD"
         self.profile_settings = {
             "XAUUSD": dict(DEFAULT_PROFILE_SETTINGS["XAUUSD"]),
-            "BTCUSD": dict(DEFAULT_PROFILE_SETTINGS["BTCUSD"]),
         }
         self.chart_view_tf_by_profile = {
             "XAUUSD": "M5",
-            "BTCUSD": "M5",
         }
         self.profile_ctx = {
             "XAUUSD": self._create_empty_profile_ctx("XAUUSD"),
-            "BTCUSD": self._create_empty_profile_ctx("BTCUSD"),
         }
         self.pos_tree_by_profile = {}
         self.pos_summary_lbl_by_profile = {}
@@ -532,7 +482,7 @@ class KronosDesktopApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close_window)
         self.root.bind("<Escape>", self._deselect_all_orders_and_reset)
 
-        # Khởi động luồng Hàng Đợi Phân Tích AI (FIFO Queue Worker) tuần tự, đảm bảo XAUUSD & BTCUSD không bao giờ tranh chấp hay trộn dữ liệu
+        # Khởi động luồng Hàng Đợi Phân Tích AI (FIFO Queue Worker)
         self._ai_queue_worker_thread = threading.Thread(target=self._ai_queue_consumer_loop, daemon=True)
         self._ai_queue_worker_thread.start()
 
@@ -542,8 +492,8 @@ class KronosDesktopApp:
         self.root.after(1000, self._realtime_tick_loop)
         self.root.after(2000, self._check_update_on_startup)
 
-    def _create_empty_profile_ctx(self, profile_key: str) -> dict:
-        """Khởi tạo bộ trạng thái độc lập cho từng Tab (XAUUSD / BTCUSD)."""
+    def _create_empty_profile_ctx(self, profile_key: str = "XAUUSD") -> dict:
+        """Khởi tạo bộ trạng thái cho hồ sơ Vàng XAUUSD."""
         sym_default = DEFAULT_PROFILE_SETTINGS.get(profile_key, {}).get("symbol", profile_key)
         return {
             "auto_loop_running": False,
@@ -592,13 +542,9 @@ class KronosDesktopApp:
 
     def _get_symbol_tolerances(self, symbol: str, tick=None) -> dict:
         """
-        Trả về bộ ngưỡng đệm kỹ thuật tự động co giãn chuẩn xác theo từng mã giao dịch (XAUUSDm vs BTCUSDm):
-        - Vàng (XAUUSDm ~ 4,670$, spread ~ 0.16$): bước nhảy Trailing 0.40$, đệm dời SL 0.50$, dung sai bằng nhau 0.05$.
-        - Bitcoin (BTCUSDm ~ 75,860$, spread ~ 6.40$): bước nhảy Trailing >= 5.0$ (hoặc 0.8x Spread), đệm dời SL >= 8.0$ (hoặc 1.2x Spread),
-          giúp BTCUSD không bị spam lệnh sửa SL mỗi giây hoặc bị MT5 từ chối vì Stops Level.
+        Trả về bộ ngưỡng đệm kỹ thuật tự động co giãn chuẩn xác cho Vàng XAUUSD:
+        - Vàng (XAUUSDm ~ 2,900$-3,000$, spread ~ 0.16$): bước nhảy Trailing 0.40$, đệm dời SL 0.50$, dung sai bằng nhau 0.05$.
         """
-        sym_up = str(symbol or "").upper()
-        is_btc = "BTC" in sym_up
         spread = 0.0
         stops_dist = 0.0
         try:
@@ -617,21 +563,7 @@ class KronosDesktopApp:
         except Exception:
             pass
 
-        if is_btc:
-            return {
-                "is_btc": True,
-                "eps_equal": 1.50,
-                "min_stop_dist": max(stops_dist * 1.2, spread * 1.2, 8.0),
-                "min_trail_step": max(spread * 0.8, 5.0),
-                "min_manual_be_dist": max(spread * 1.0, 6.0),
-                "sl_break_tol": max(spread * 0.5, 3.0),
-                "max_sl_tol": 1.0,
-                "min_candle_body": 2.0,
-                "min_atr_sl_floor": 20.0,
-                "min_tp_floor": 30.0,
-            }
         return {
-            "is_btc": False,
             "eps_equal": 0.05,
             "min_stop_dist": max(stops_dist * 1.2, spread * 1.2, 0.50),
             "min_trail_step": 0.40,
@@ -644,7 +576,7 @@ class KronosDesktopApp:
         }
 
     def _get_profile_cfg(self, profile_key: str = None) -> dict:
-        """Lấy thông số cài đặt độc lập của Tab được chỉ định (an toàn đa luồng, không bao giờ trộn thông số giữa XAUUSD và BTCUSD)."""
+        """Lấy thông số cài đặt độc lập của hồ sơ XAUUSD."""
         pk = profile_key or self.active_profile_key
         if (
             pk == self.active_profile_key
@@ -710,10 +642,9 @@ class KronosDesktopApp:
             self.drawer_title_lbl.config(text=f"BẢNG ĐIỀU KHIỂN & CÀI ĐẶT ({pk})")
         self._update_forecast_tab_header()
 
-    def _switch_active_profile(self, target_key: str):
-        """Chuyển đổi dứt khoát giữa Tab XAUUSD và Tab BTCUSD: của Tab nào chỉ hiển thị đúng Tab đó."""
-        if target_key not in ("XAUUSD", "BTCUSD"):
-            return
+    def _switch_active_profile(self, target_key: str = "XAUUSD"):
+        """Đồng bộ hiển thị hồ sơ Vàng XAUUSD."""
+        target_key = "XAUUSD"
         if target_key != self.active_profile_key:
             self._sync_self_to_active_ctx(include_ai_state=False)
             self.active_profile_key = target_key
@@ -725,7 +656,7 @@ class KronosDesktopApp:
             if target_key in self.pos_summary_lbl_by_profile:
                 self.pos_summary_lbl = self.pos_summary_lbl_by_profile[target_key]
             if hasattr(self, "drawer_title_lbl"):
-                self.drawer_title_lbl.config(text=f"BẢNG ĐIỀU KHIỂN & CÀI ĐẶT ({target_key})")
+                self.drawer_title_lbl.config(text="BẢNG ĐIỀU KHIỂN & CÀI ĐẶT (XAUUSD)")
             self._update_forecast_tab_header()
 
         # Cập nhật công tắc AUTO và nút Reload theo đúng trạng thái của Tab đang mở
@@ -1897,7 +1828,7 @@ class KronosDesktopApp:
         self.canvas.mpl_connect("motion_notify_event", self._on_mouse_motion)
         self.canvas.mpl_connect("resize_event", lambda e: setattr(self, "_chart_bg_bbox", None))
 
-        # KHU VỰC DƯỚI CÙNG: BẢNG ĐIỀU KHIỂN ĐA TAB (XAUUSD | BTCUSD | DỰ BÁO AI & NHẬT KÝ)
+        # KHU VỰC DƯỚI CÙNG: BẢNG ĐIỀU KHIỂN (XAUUSD & NHẬT KÝ HỆ THỐNG)
         self.bottom_notebook = ttk.Notebook(right_panel, height=188)
         self.bottom_notebook.pack(fill=tk.X)
 
@@ -1906,16 +1837,11 @@ class KronosDesktopApp:
         self.bottom_notebook.add(pos_tab_xau, text="XAUUSD (BIỂU ĐỒ & LỆNH REAL-TIME)")
         self._build_positions_tab_ui(pos_tab_xau, "XAUUSD")
 
-        # TAB 1 (Tab mới): BTCUSD (BIỂU ĐỒ & LỆNH REAL-TIME)
-        pos_tab_btc = tk.Frame(self.bottom_notebook, bg=PANEL_BG)
-        self.bottom_notebook.add(pos_tab_btc, text="₿ BTCUSD (BIỂU ĐỒ & LỆNH REAL-TIME)")
-        self._build_positions_tab_ui(pos_tab_btc, "BTCUSD")
-
         # Mặc định khởi tạo trỏ vào Tab XAUUSD
         self.pos_tree = self.pos_tree_by_profile["XAUUSD"]
         self.pos_summary_lbl = self.pos_summary_lbl_by_profile["XAUUSD"]
 
-        # TAB 2: NHẬT KÝ HỆ THỐNG & FILE LOG HOẠT ĐỘNG
+        # TAB 1: NHẬT KÝ HỆ THỐNG & FILE LOG HOẠT ĐỘNG
         log_tab = tk.Frame(self.bottom_notebook, bg=PANEL_BG)
         self.bottom_notebook.add(log_tab, text="📋 NHẬT KÝ HỆ THỐNG")
 
@@ -1949,7 +1875,7 @@ class KronosDesktopApp:
         self.bottom_notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     def _build_positions_tab_ui(self, pos_tab: tk.Frame, profile_key: str):
-        """Dựng giao diện bảng quản lý lệnh đang mở Real-Time riêng biệt cho từng Tab (XAUUSD / BTCUSD)."""
+        """Dựng giao diện bảng quản lý lệnh đang mở Real-Time cho XAUUSD."""
         pos_top_bar = tk.Frame(pos_tab, bg=PANEL_BG, pady=4, padx=6)
         pos_top_bar.pack(fill=tk.X)
 
@@ -2045,7 +1971,7 @@ class KronosDesktopApp:
         """Xử lý sự kiện khi người dùng chọn lệnh trong danh sách phía dưới: làm nổi bật lệnh tương ứng trên biểu đồ."""
         pk = profile_key or self.active_profile_key
         if pk == self.active_profile_key:
-            sym = self.symbol_var.get().strip() or (SYMBOL_BTC if pk == "BTCUSD" else SYMBOL_XAU)
+            sym = self.symbol_var.get().strip() or SYMBOL_XAU
             tf = self.tf_var.get().strip() or "M1"
             self._refresh_realtime_chart(sym, tf, force_full_redraw=True)
 
@@ -2086,12 +2012,12 @@ class KronosDesktopApp:
                     if p_key == pk:
                         cleared = True
 
-        sym = self.symbol_var.get().strip() or (SYMBOL_BTC if pk == "BTCUSD" else SYMBOL_XAU)
+        sym = self.symbol_var.get().strip() or SYMBOL_XAU
         tf = self.tf_var.get().strip() or "M1"
         self._refresh_realtime_chart(sym, tf, force_full_redraw=True)
 
     # =========================================================================
-    # TỰ ĐỘNG LƯU & KHÔI PHỤC CÀI ĐẶT NGƯỜI DÙNG THEO TỪNG TAB (XAUUSD / BTCUSD)
+    # TỰ ĐỘNG LƯU & KHÔI PHỤC CÀI ĐẶT NGƯỜI DÙNG (XAUUSD)
     # =========================================================================
     @staticmethod
     def _format_duration(duration_seconds: int) -> str:
@@ -2296,31 +2222,27 @@ class KronosDesktopApp:
             self.show_toast(f"Lỗi nhập file: {e}", is_error=True, duration_ms=3000)
 
     def save_user_settings(self, *args, show_feedback: bool = False) -> bool:
-        """Lưu toàn bộ cài đặt của cả 2 Tab (XAUUSD & BTCUSD) và ghi nhớ Tab đang mở (last_active_tab)."""
+        """Lưu toàn bộ cài đặt của bot Vàng XAUUSD."""
         if self._loading_settings:
             return False
         try:
             os.makedirs(SETTINGS_DIR, exist_ok=True)
             cur_data = {k: v.get() for k, v in self._get_settings_vars_map().items()}
-            self.profile_settings[self.active_profile_key] = dict(cur_data)
+            self.profile_settings["XAUUSD"] = dict(cur_data)
 
             # Lấy HF Token và Space ID từ UI (nếu người dùng xóa thì lưu rỗng, không tự ý khôi phục token cũ)
             token_val = str(self.hf_token_var.get()).strip()
             space_val = str(self.hf_space_var.get()).strip()
 
-            # Đồng bộ các thông tin xác thực & kết nối chung (HF Token, HF Space) cho cả 2 tab
-            for pk in ("XAUUSD", "BTCUSD"):
-                if pk in self.profile_settings:
-                    self.profile_settings[pk]["hf_token"] = token_val
-                    self.profile_settings[pk]["hf_space"] = space_val
+            self.profile_settings["XAUUSD"]["hf_token"] = token_val
+            self.profile_settings["XAUUSD"]["hf_space"] = space_val
 
-            payload = dict(self.profile_settings.get(self.active_profile_key, cur_data))
+            payload = dict(self.profile_settings.get("XAUUSD", cur_data))
             payload["hf_token"] = token_val
             payload["hf_space"] = space_val
-            payload["last_active_tab"] = self.active_profile_key
+            payload["last_active_tab"] = "XAUUSD"
             payload["profiles"] = {
                 "XAUUSD": dict(self.profile_settings["XAUUSD"]),
-                "BTCUSD": dict(self.profile_settings["BTCUSD"]),
             }
             with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -2328,7 +2250,7 @@ class KronosDesktopApp:
             now_str = datetime.now().strftime("%H:%M:%S")
             if hasattr(self, "save_status_lbl"):
                 self.save_status_lbl.config(
-                    text=f"✓ Đã lưu ({self.active_profile_key}) lúc {now_str}",
+                    text=f"✓ Đã lưu (XAUUSD) lúc {now_str}",
                     fg="#10b981"
                 )
             return True
@@ -2351,91 +2273,51 @@ class KronosDesktopApp:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            if isinstance(data.get("profiles"), dict):
-                for pk in ("XAUUSD", "BTCUSD"):
-                    saved_p = data["profiles"].get(pk, {})
-                    if isinstance(saved_p, dict):
-                        merged = dict(DEFAULT_PROFILE_SETTINGS[pk])
-                        for k, val in saved_p.items():
-                            if k in merged:
-                                if k == "model" and isinstance(val, str) and val.startswith("Kronos-"):
-                                    val = val.replace("Kronos-", "AI-", 1)
-                                elif k == "engine" and isinstance(val, str) and "trực tiếp" in val:
-                                    val = "Chạy trực tiếp máy Local"
-                                merged[k] = val
-                        self.profile_settings[pk] = merged
-            else:
-                # Tự động chuyển đổi (Migration) từ file cài đặt đơn cũ sang 2 hồ sơ độc lập XAUUSD & BTCUSD
-                shared_keys = (
-                    "lot", "max_pos", "scenarios", "consensus", "max_dispersion", "sl_atr", "rr",
-                    "auto_be", "be_trigger_r", "auto_trail", "trail_dist_r",
-                    "auto_rev_close", "rev_consensus", "rev_min_move", "be_plus_price",
-                    "daily_tp_usd", "daily_sl_usd", "max_consec_loss", "cooldown_mins", "fast_sl_cooldown_mins",
-                    "engine", "model", "hf_space", "hf_token", "lookback", "pred_len", "realtime_chart"
-                )
-                for pk in ("XAUUSD", "BTCUSD"):
-                    for sk in shared_keys:
-                        if sk in data:
-                            val = data[sk]
-                            if sk == "model" and isinstance(val, str) and val.startswith("Kronos-"):
+            if isinstance(data.get("profiles"), dict) and "XAUUSD" in data["profiles"]:
+                saved_p = data["profiles"].get("XAUUSD", {})
+                if isinstance(saved_p, dict):
+                    merged = dict(DEFAULT_PROFILE_SETTINGS["XAUUSD"])
+                    for k, val in saved_p.items():
+                        if k in merged:
+                            if k == "model" and isinstance(val, str) and val.startswith("Kronos-"):
                                 val = val.replace("Kronos-", "AI-", 1)
-                            elif sk == "engine" and isinstance(val, str) and "trực tiếp" in val:
+                            elif k == "engine" and isinstance(val, str) and "trực tiếp" in val:
                                 val = "Chạy trực tiếp máy Local"
-                            self.profile_settings[pk][sk] = val
+                            merged[k] = val
+                    self.profile_settings["XAUUSD"] = merged
+            else:
+                # Tự động nạp từ file cài đặt phẳng
+                for k in DEFAULT_PROFILE_SETTINGS["XAUUSD"].keys():
+                    if k in data:
+                        val = data[k]
+                        if k == "model" and isinstance(val, str) and val.startswith("Kronos-"):
+                            val = val.replace("Kronos-", "AI-", 1)
+                        elif k == "engine" and isinstance(val, str) and "trực tiếp" in val:
+                            val = "Chạy trực tiếp máy Local"
+                        self.profile_settings["XAUUSD"][k] = val
 
-                sym_old = str(data.get("symbol", "XAUUSDm")).strip()
-                sym_specific_keys = ("symbol", "analysis_tf", "tf", "min_move", "max_spread", "sl_buffer", "max_sl_price", "be_plus_price")
-                if "BTC" in sym_old.upper():
-                    for k in sym_specific_keys:
-                        if k in data:
-                            self.profile_settings["BTCUSD"][k] = data[k]
-                else:
-                    for k in sym_specific_keys:
-                        if k in data:
-                            self.profile_settings["XAUUSD"][k] = data[k]
-                    # Nếu trước đó người dùng thử nghiệm thông số SL tối đa của BTC (>= 50 giá) trên mã Vàng -> Tách riêng cho BTCUSD và trả Vàng về 5.0 giá
-                    try:
-                        if float(self.profile_settings["XAUUSD"].get("max_sl_price", 5.0)) >= 50.0:
-                            self.profile_settings["BTCUSD"]["max_sl_price"] = str(self.profile_settings["XAUUSD"]["max_sl_price"])
-                            self.profile_settings["XAUUSD"]["max_sl_price"] = "5.0"
-                    except Exception:
-                        pass
-
-            # Trích xuất và đồng bộ HF Token cho cả 2 Tab nếu có lưu
-            token_saved = ""
-            for pk in ("XAUUSD", "BTCUSD"):
-                t = str(self.profile_settings.get(pk, {}).get("hf_token", "")).strip()
-                if t:
-                    token_saved = t
-                    break
+            token_saved = str(self.profile_settings.get("XAUUSD", {}).get("hf_token", "")).strip()
             if not token_saved and isinstance(data, dict):
                 token_saved = str(data.get("hf_token", "")).strip()
 
             if token_saved:
-                for pk in ("XAUUSD", "BTCUSD"):
-                    if pk in self.profile_settings:
-                        self.profile_settings[pk]["hf_token"] = token_saved
+                self.profile_settings["XAUUSD"]["hf_token"] = token_saved
 
-            # Khôi phục chính xác Tab người dùng đang mở trước khi tắt App (XAUUSD hoặc BTCUSD)
-            last_tab = data.get("last_active_tab", "XAUUSD") if isinstance(data, dict) else "XAUUSD"
-            if last_tab not in ("XAUUSD", "BTCUSD"):
-                last_tab = "XAUUSD"
-            self.active_profile_key = last_tab
+            self.active_profile_key = "XAUUSD"
             self._sync_active_ctx_to_self()
 
             if hasattr(self, "chart_view_tf_by_profile"):
-                for pk in ("XAUUSD", "BTCUSD"):
-                    self.chart_view_tf_by_profile[pk] = str(self.profile_settings.get(pk, {}).get("tf", "M5")).strip()
+                self.chart_view_tf_by_profile["XAUUSD"] = str(self.profile_settings.get("XAUUSD", {}).get("tf", "M5")).strip()
             if hasattr(self, "tf_quick_btns"):
-                self._highlight_active_tf_btn(self.chart_view_tf_by_profile.get(last_tab, "M5"))
+                self._highlight_active_tf_btn(self.chart_view_tf_by_profile.get("XAUUSD", "M5"))
 
             if hasattr(self, "bottom_notebook"):
                 try:
-                    self.bottom_notebook.select(1 if last_tab == "BTCUSD" else 0)
+                    self.bottom_notebook.select(0)
                 except Exception:
                     pass
 
-            self.log(f"Đã khôi phục hồ sơ cài đặt riêng cho Tab {last_tab} (XAUUSD & BTCUSD độc lập).")
+            self.log("Đã khôi phục hồ sơ cài đặt XAUUSD thành công.")
             if token_saved:
                 self.log(f"🔑 Hugging Face Token đã sẵn sàng ({token_saved[:5]}...{token_saved[-4:]}).")
         except Exception as e:
@@ -2720,10 +2602,8 @@ class KronosDesktopApp:
         selected_idx = self.bottom_notebook.index(self.bottom_notebook.select())
         if selected_idx == 0:
             self._switch_active_profile("XAUUSD")
-        elif selected_idx == 1:
-            self._switch_active_profile("BTCUSD")
         else:
-            # Tab 2: Nhật ký hệ thống - giữ nguyên thị trường và biểu đồ đang mở
+            # Tab 1: Nhật ký hệ thống - giữ nguyên thị trường và biểu đồ đang mở
             pass
 
         self.user_zoomed = False
@@ -2869,9 +2749,9 @@ class KronosDesktopApp:
         y_max = max(highs)
         raw_span = max(y_max - y_min, 0.5)
 
-        # Chừa lề an toàn tối thiểu 16% ở trên và 16% ở dưới (tối thiểu 2.0 giá vàng hoặc 40 giá BTC)
+        # Chừa lề an toàn tối thiểu 16% ở trên và 16% ở dưới (tối thiểu 2.0 giá vàng)
         # để nhãn giá Live, đồng hồ đếm ngược và các râu nến không bao giờ bị cắt hay chui xuống dưới trục Y
-        margin_pad = max(raw_span * 0.16, 2.0 if "BTC" not in sym else 40.0)
+        margin_pad = max(raw_span * 0.16, 2.0)
         target_y0 = y_min - margin_pad
         target_y1 = y_max + margin_pad
 
@@ -3321,7 +3201,7 @@ class KronosDesktopApp:
         sys.excepthook = _tk_exception_handler
         threading.excepthook = _thread_exception_handler
         self._write_file_log("================================================================================")
-        self._write_file_log("🚀 KHỞI ĐỘNG HỆ THỐNG SCALPING ĐA LUỒNG XAUUSD & BTCUSD (MT5 EXNESS)")
+        self._write_file_log("🚀 KHỞI ĐỘNG HỆ THỐNG SCALPING VÀNG XAUUSD (MT5 EXNESS)")
 
     def _write_file_log(self, text: str, is_error: bool = False):
         """Ghi nhật ký hoạt động và lỗi xuống ổ cứng an toàn đa luồng (Thread-Safe)."""
@@ -3445,18 +3325,6 @@ class KronosDesktopApp:
                 self._update_left_quick_info(symbol, tf_str, tick, pos_count, total_profit)
                 self._update_bot_status_bar(active_pk)
                 self._sync_self_to_active_ctx()
-
-                # Quản lý song song Tab còn lại ở chế độ chạy ngầm (Auto-Hòa vốn, Trailing Stop, Thoát đảo chiều, Chờ giá hồi, Giới hạn Lãi/Lỗ ngày)
-                bg_pk = "BTCUSD" if active_pk == "XAUUSD" else "XAUUSD"
-                bg_sym = str(self.profile_settings.get(bg_pk, {}).get("symbol", "")).strip()
-                if bg_sym:
-                    with self._mt5_lock:
-                        mt5.symbol_select(bg_sym, True)
-                        bg_tick = mt5.symbol_info_tick(bg_sym)
-                    _, bg_profit = self._update_open_positions_and_manage(bg_sym, profile_key=bg_pk)
-                    self._check_daily_profit_loss_limits(bg_profit, bg_tick, profile_key=bg_pk)
-                    if bg_tick is not None:
-                        self._check_pending_pullback_order(bg_sym, bg_tick, profile_key=bg_pk)
 
                 if self.realtime_chart_var.get() and self.heartbeat_toggle and not self.is_analyzing and self._drag_start_px is None:
                     self._refresh_realtime_chart(symbol, tf_str)
@@ -3619,7 +3487,7 @@ class KronosDesktopApp:
             return []
 
     def _check_daily_profit_loss_limits(self, floating_profit: float, tick=None, profile_key: str = None):
-        """Kiểm tra mục tiêu Lãi ngày / Cắt lỗ ngày (USD) & Tạm ngừng sau chuỗi thua liên tiếp cho từng Tab (XAUUSD / BTCUSD) theo Giờ Việt Nam (GMT+7)."""
+        """Kiểm tra mục tiêu Lãi ngày / Cắt lỗ ngày (USD) & Tạm ngừng sau chuỗi thua liên tiếp cho XAUUSD theo Giờ Việt Nam (GMT+7)."""
         pk = profile_key or self.active_profile_key
         cfg = self._get_profile_cfg(pk)
         ctx = self.profile_ctx[pk]
@@ -3839,13 +3707,10 @@ class KronosDesktopApp:
         return " | ".join(parts)
 
     def _get_profile_magic_number(self, profile_key: str = None) -> int:
-        """Lấy Magic Number do người dùng thiết lập cho từng Tab (XAUUSD mặc định 20260501/20260601, BTCUSD mặc định 20260502/20260602)."""
+        """Lấy Magic Number do người dùng thiết lập cho XAUUSD (mặc định 20260601 nếu là instance BOT)."""
         pk = profile_key or self.active_profile_key
         cfg = self._get_profile_cfg(pk)
-        if INSTANCE_ID:
-            default_magic = 20260602 if pk == "BTCUSD" else 20260601
-        else:
-            default_magic = 20260502 if pk == "BTCUSD" else 20260501
+        default_magic = 20260601 if INSTANCE_ID else 20260501
         raw_val = str(cfg.get("magic_number", default_magic)).strip()
         try:
             m_val = int(float(raw_val))
@@ -4128,7 +3993,7 @@ class KronosDesktopApp:
         # Dự phòng tính theo contract size của mã giao dịch
         with self._mt5_lock:
             sym_info = mt5.symbol_info(pos.symbol) if MT5_AVAILABLE else None
-        contract_sz = float(sym_info.trade_contract_size) if (sym_info and sym_info.trade_contract_size > 0) else (1.0 if "BTC" in str(pos.symbol).upper() else 100.0)
+        contract_sz = float(sym_info.trade_contract_size) if (sym_info and sym_info.trade_contract_size > 0) else 100.0
         diff = (target_price - pos.price_open) if pos.type == mt5.POSITION_TYPE_BUY else (pos.price_open - target_price)
         return float(diff * pos.volume * contract_sz)
 
@@ -4166,7 +4031,7 @@ class KronosDesktopApp:
             if one_r > 0.2:
                 self.initial_r_cache[pos.ticket] = one_r
                 return one_r
-        return 150.0 if "BTC" in str(pos.symbol).upper() else 5.0
+        return 5.0
 
     def _update_open_positions_and_manage(self, symbol: str, profile_key: str = None):
         pk = profile_key or self.active_profile_key
@@ -4187,7 +4052,7 @@ class KronosDesktopApp:
         total_profit = 0.0
         auto_be = bool(cfg.get("auto_be", True))
         auto_trail = bool(cfg.get("auto_trail", True))
-        default_be_plus = 5.0 if pk == "BTCUSD" else 0.2
+        default_be_plus = 0.2
         try:
             be_trigger_r = float(cfg.get("be_trigger_r", 1.0))
             trail_dist_r = float(cfg.get("trail_dist_r", 0.35))
@@ -4454,7 +4319,7 @@ class KronosDesktopApp:
         pk = self.active_profile_key
         cfg = self._get_profile_cfg(pk)
         symbol = self.symbol_var.get().strip()
-        default_be_plus = 5.0 if pk == "BTCUSD" else 0.2
+        default_be_plus = 0.2
         try:
             be_plus_price = max(float(cfg.get("be_plus_price", default_be_plus)), 0.0)
         except ValueError:
@@ -4885,7 +4750,7 @@ class KronosDesktopApp:
                     try:
                         cur_y0, cur_y1 = self.ax.get_ylim()
                         cur_span = cur_y1 - cur_y0 if cur_y1 > cur_y0 else 1.0
-                        safe_pad = max(cur_span * 0.15, 2.0 if "BTC" not in symbol else 40.0)
+                        safe_pad = max(cur_span * 0.15, 2.0)
                         if l < cur_y0 + safe_pad or h > cur_y1 - safe_pad or c < cur_y0 + safe_pad or c > cur_y1 - safe_pad:
                             new_y0 = min(cur_y0, l - safe_pad, c - safe_pad)
                             new_y1 = max(cur_y1, h + safe_pad, c + safe_pad)
@@ -4899,7 +4764,7 @@ class KronosDesktopApp:
                     if open_positions and self._pos_text_artists:
                         eps_eq = self._get_symbol_tolerances(symbol)["eps_equal"]
                         cfg_live = self._get_profile_cfg(self.active_profile_key)
-                        def_be_p = 5.0 if self.active_profile_key == "BTCUSD" else 0.2
+                        def_be_p = 0.2
                         try:
                             be_p_live = max(float(cfg_live.get("be_plus_price", def_be_p)), 0.0)
                         except ValueError:
@@ -4918,9 +4783,7 @@ class KronosDesktopApp:
                                 prefix = f"👉 [LỆNH #{p_obj.ticket}] " if p_obj.ticket in sel_tickets_live else ""
                                 txt_artist.set_text(f" {prefix}Entry: {p_obj.price_open:.2f} ({p_obj.profit:+.1f}$){be_tag} ")
 
-                    has_ai = (self._chart_mean_df is not None and len(self._chart_mean_df) > 0)
-                    ai_tag = " + DỰ BÁO AI" if has_ai else ""
-                    mode_label = f"BIỂU ĐỒ REAL-TIME{ai_tag}"
+                    mode_label = "BIỂU ĐỒ REAL-TIME"
                     zoom_hint = " [Nháy đúp để Reset]" if self.user_zoomed else ""
                     if self.chart_mode == "AI_FORECAST" and active_tf != ana_tf:
                         zoom_hint = f" [⚠ Nến dự báo AI thuộc khung {ana_tf} — bấm nút {ana_tf} để xem]"
@@ -5004,7 +4867,7 @@ class KronosDesktopApp:
                             return False, f"🛡️ [{pk}] Đã có 1 lệnh mở trong nến {last_c_time}. Chờ nến tiếp theo mới xét nhồi lệnh."
 
                     # 2. Khoảng cách nhồi lệnh tối thiểu (min_entry_spacing)
-                    default_spacing = 50.0 if pk == "BTCUSD" else 1.0
+                    default_spacing = 1.0
                     try:
                         min_spacing = max(float(cfg.get("min_entry_spacing", default_spacing)), 0.0)
                     except ValueError:
@@ -5117,11 +4980,7 @@ class KronosDesktopApp:
                 self._order_in_flight[pk] = False
 
     def enqueue_ai_scan(self, profile_key: str = None, reason: str = "MANUAL", closed_candle_ts=None) -> bool:
-        """
-        Đưa yêu cầu phân tích AI của một mã (XAUUSD / BTCUSD) vào Hàng Đợi Tuần Tự (FIFO Queue):
-        - Nếu cả 2 mã đóng nến cùng lúc trên cùng khung thời gian (VD: cùng M5), mã thứ 2 sẽ xếp hàng chờ mã thứ 1 phân tích xong.
-        - Tuyệt đối không chạy chồng chéo hay trộn lẫn dữ liệu nến giữa XAUUSD và BTCUSD.
-        """
+        """Đưa yêu cầu phân tích AI của XAUUSD vào Hàng Đợi Tuần Tự (FIFO Queue)."""
         pk = profile_key or self.active_profile_key
         if pk not in self.profile_ctx:
             return False
@@ -5386,7 +5245,7 @@ class KronosDesktopApp:
             self._ui_after(0, self._start_scan_progress_anim)
         try:
             with self._ai_scan_lock:
-                # Chụp bản sao cấu hình độc lập của đúng hồ sơ pk (XAUUSD hoặc BTCUSD) tại thời điểm bắt đầu phân tích
+                # Chụp bản sao cấu hình của hồ sơ XAUUSD tại thời điểm bắt đầu phân tích
                 cfg = dict(self._get_profile_cfg(pk))
                 ctx = self.profile_ctx[pk]
                 default_sym = DEFAULT_PROFILE_SETTINGS.get(pk, {}).get("symbol", "XAUUSDm")
@@ -5409,7 +5268,7 @@ class KronosDesktopApp:
                     rev_min_move = max(float(cfg.get("rev_min_move", 0.0)), 0.0)
                 except ValueError:
                     rev_min_move = 0.0
-                default_be_plus = 5.0 if pk == "BTCUSD" else 0.2
+                default_be_plus = 0.2
                 try:
                     be_plus_price = max(float(cfg.get("be_plus_price", default_be_plus)), 0.0)
                 except ValueError:
@@ -6026,7 +5885,7 @@ class KronosDesktopApp:
                 has_sel = len(sel_tickets) > 0
                 eps_eq = self._get_symbol_tolerances(symbol)["eps_equal"]
                 cfg_chart = self._get_profile_cfg(self.active_profile_key)
-                def_be_p = 5.0 if self.active_profile_key == "BTCUSD" else 0.2
+                def_be_p = 0.2
                 try:
                     be_p_chart = max(float(cfg_chart.get("be_plus_price", def_be_p)), 0.0)
                 except ValueError:
@@ -6201,19 +6060,12 @@ class KronosDesktopApp:
                     Rectangle(
                         (idx_x - 0.33, bottom), 0.66, height,
                         facecolor=color, edgecolor=color, zorder=6,
-                        label="Nến Dự Báo AI" if j == 0 else ""
+                        label=""
                     )
                 )
 
             # Phân tách trực quan giữa nến Live và cụm nến Dự Báo
             self.ax.axvline(x=n_hist - 0.5, color="#f0b90b", linestyle="--", linewidth=1.0, alpha=0.6)
-            mid_pred_x = pred_start_x + (n_pred - 1) / 2.0
-            max_pred_h = float(mean_df["high"].max())
-            self.ax.text(
-                mid_pred_x, max_pred_h, " 🔮 DỰ BÁO AI ",
-                color="#000000", backgroundcolor=GOLD_ACCENT,
-                fontsize=7.5, fontweight="bold", ha="center", va="bottom", zorder=15, clip_on=True
-            )
 
             all_times += [""] * PRED_GAP
             all_times += list(mean_df["timestamps"].dt.strftime("%H:%M"))
@@ -6225,7 +6077,7 @@ class KronosDesktopApp:
                     lot_val = 0.01
                 with self._mt5_lock:
                     sym_info = mt5.symbol_info(symbol) if MT5_AVAILABLE else None
-                contract_sz = float(sym_info.trade_contract_size) if (sym_info and sym_info.trade_contract_size > 0) else (1.0 if "BTC" in str(symbol).upper() else 100.0)
+                contract_sz = float(sym_info.trade_contract_size) if (sym_info and sym_info.trade_contract_size > 0) else 100.0
                 est_sl_usd = -abs(live_price - sl_price) * lot_val * contract_sz
                 est_tp_usd = abs(tp_price - live_price) * lot_val * contract_sz
                 self.ax.axhline(y=sl_price, color=RED_DOWN, linestyle=":", linewidth=1.3, label=f"SL: {sl_price:.2f} ({est_sl_usd:+.1f}$)")
@@ -6269,9 +6121,7 @@ class KronosDesktopApp:
             zorder=25
         )
 
-        has_ai = (mean_df is not None and len(mean_df) > 0)
-        ai_tag = " + DỰ BÁO AI" if has_ai else ""
-        mode_label = f"BIỂU ĐỒ REAL-TIME{ai_tag}"
+        mode_label = "BIỂU ĐỒ REAL-TIME"
         zoom_hint = " [Nháy đúp để Reset]" if self.user_zoomed else ""
         self.ax.set_title(
             f"[{mode_label}] {symbol} ({tf}) — Giá Live: {live_price:.2f} ({cd_str}){zoom_hint}",
@@ -6318,7 +6168,6 @@ def run_first_time_setup():
     default_settings = dict(DEFAULT_PROFILE_SETTINGS["XAUUSD"])
     default_settings["profiles"] = {
         "XAUUSD": dict(DEFAULT_PROFILE_SETTINGS["XAUUSD"]),
-        "BTCUSD": dict(DEFAULT_PROFILE_SETTINGS["BTCUSD"]),
     }
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:

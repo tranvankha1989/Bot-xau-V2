@@ -1,6 +1,6 @@
 {
-  "version": "1.3.7",
+  "version": "1.3.8",
   "name": "Trading AI PRO by Kha Tran Design",
-  "release_date": "2026-11-12",
-  "description": "Phiên bản v1.3.7:\n- Tích hợp cụm nến dự báo AI trực tiếp vào biểu đồ Real-Time chính (không cần chuyển tab).\n- Tự động tách khoảng cách (4 nến) giữa nến hiện tại và nến dự báo để quan sát trực quan.\n- Loại bỏ hoàn toàn các đường kịch bản chằng chịt màu vàng giúp biểu đồ thông thoáng.\n- Sửa lỗi nến và nhãn giá bị khuất khi giá đâm xuyên qua trục Y, mở rộng lề an toàn tự động.\n- Chuyển tab dưới thành Nhật Ký Hệ Thống chuyên nghiệp, loại bỏ bảng số dự báo rườm rà."
+  "release_date": "2026-11-13",
+  "description": "Phiên bản v1.3.8:\n- Bỏ nhãn chữ 'DỰ BÁO AI' trên biểu đồ giúp biểu đồ sạch sẽ, không che khuất giá.\n- Tối ưu hóa 100% chuyên sâu cho Vàng (XAUUSD), loại bỏ toàn bộ mã nguồn BTCUSD thừa.\n- Tinh gọn giao diện thành 2 tab duy nhất: XAUUSD (Biểu đồ & Lệnh Real-Time) và Nhật Ký Hệ Thống.\n- Giữ nguyên toàn bộ tính năng phân tách nến dự báo AI tự động và bảo vệ vùng giá."
 }
