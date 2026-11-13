@@ -1194,6 +1194,13 @@ class KronosDesktopApp:
 
     def _on_click_version_badge(self):
         """Mở cửa sổ giới thiệu tính năng của bản cập nhật mới hoặc kiểm tra phiên bản thủ công."""
+        try:
+            import sys, importlib
+            if "kronos_updater" in sys.modules:
+                importlib.reload(sys.modules["kronos_updater"])
+        except Exception:
+            pass
+
         if not hasattr(self, "updater") or self.updater is None:
             try:
                 from kronos_updater import AppUpdater, get_current_app_version

@@ -318,8 +318,9 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
 
     dialog = tk.Toplevel(parent)
     dialog.title("Cập Nhật Ứng Dụng — Trading AI PRO")
-    dialog.geometry("560x420")
-    dialog.resizable(False, False)
+    dialog.geometry("620x500")
+    dialog.minsize(520, 420)
+    dialog.resizable(True, True)
     dialog.configure(bg="#0b0f19")
     dialog.transient(parent)
     dialog.grab_set()
@@ -330,13 +331,13 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
     ph = parent.winfo_height()
     px = parent.winfo_rootx()
     py = parent.winfo_rooty()
-    dx = px + (pw - 560) // 2
-    dy = py + (ph - 420) // 2
+    dx = px + (pw - 620) // 2
+    dy = py + (ph - 500) // 2
     dialog.geometry(f"+{max(10, dx)}+{max(10, dy)}")
 
-    # Header Card
+    # 1. Header Card (Docked to TOP)
     header_frame = tk.Frame(dialog, bg="#111827", padx=20, pady=16)
-    header_frame.pack(fill=tk.X)
+    header_frame.pack(side=tk.TOP, fill=tk.X)
 
     title_lbl = tk.Label(
         header_frame,
@@ -356,9 +357,16 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
     )
     ver_compare_lbl.pack(anchor="w", pady=(4, 0))
 
-    # Thân cửa sổ: Danh sách tính năng mới (Changelog)
+    # 2. Footer Section (Docked to BOTTOM first - Đảm bảo luôn luôn hiển thị các nút thao tác)
+    footer_frame = tk.Frame(dialog, bg="#0b0f19", padx=20, pady=16)
+    footer_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+    sep_line = tk.Frame(dialog, bg="#1e293b", height=1)
+    sep_line.pack(side=tk.BOTTOM, fill=tk.X)
+
+    # 3. Thân cửa sổ: Danh sách tính năng mới (Co giãn tự nhiên ở giữa)
     body_frame = tk.Frame(dialog, bg="#0b0f19", padx=20, pady=12)
-    body_frame.pack(fill=tk.BOTH, expand=True)
+    body_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     desc_lbl = tk.Label(
         body_frame,
@@ -391,16 +399,15 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
     notes_text.insert(tk.END, notes if notes else "Không có ghi chú tính năng kèm theo.")
     notes_text.config(state=tk.DISABLED)
 
-    # Vùng thanh tiến trình (Ẩn ban đầu, chỉ hiện khi người dùng bấm Cập Nhật)
-    progress_frame = tk.Frame(body_frame, bg="#0b0f19")
+    # Vùng thanh tiến trình nằm trong footer_frame (Ẩn ban đầu, chỉ hiện khi người dùng bấm Cập Nhật)
+    progress_frame = tk.Frame(footer_frame, bg="#0b0f19")
     status_msg_lbl = tk.Label(progress_frame, text="", bg="#0b0f19", fg="#38bdf8", font=("Segoe UI", 8, "italic"))
     status_msg_lbl.pack(anchor="w", pady=(0, 2))
-    progress_bar = ttk.Progressbar(progress_frame, orient="horizontal", mode="determinate", length=520)
-    progress_bar.pack(fill=tk.X)
+    progress_bar = ttk.Progressbar(progress_frame, orient="horizontal", mode="determinate")
+    progress_bar.pack(fill=tk.X, pady=(0, 10))
 
-    # Footer Buttons
-    footer_frame = tk.Frame(dialog, bg="#0b0f19", padx=20, pady=14)
-    footer_frame.pack(fill=tk.X, side=tk.BOTTOM)
+    btn_row = tk.Frame(footer_frame, bg="#0b0f19")
+    btn_row.pack(side=tk.BOTTOM, fill=tk.X)
 
     def _start_update():
         if not patch_url:
@@ -414,7 +421,7 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
 
         btn_update.config(state=tk.DISABLED, text="Đang cập nhật...")
         btn_later.config(state=tk.DISABLED)
-        progress_frame.pack(fill=tk.X, pady=(10, 0))
+        progress_frame.pack(side=tk.TOP, fill=tk.X, before=btn_row)
 
         def _progress(pct, msg):
             def _ui():
@@ -444,15 +451,15 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
         threading.Thread(target=_worker, daemon=True).start()
 
     btn_update = tk.Button(
-        footer_frame,
-        text="Cập Nhật Ngay",
+        btn_row,
+        text="  ✓ ĐỒNG Ý CẬP NHẬT NGAY  ",
         bg="#059669",
         fg="#ffffff",
         activebackground="#10b981",
         activeforeground="#ffffff",
         font=("Segoe UI", 9, "bold"),
         padx=18,
-        pady=6,
+        pady=8,
         relief="flat",
         cursor="hand2",
         command=_start_update,
@@ -460,7 +467,7 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
     btn_update.pack(side=tk.RIGHT, padx=(8, 0))
 
     btn_later = tk.Button(
-        footer_frame,
+        btn_row,
         text="Để Sau",
         bg="#1e293b",
         fg="#94a3b8",
@@ -468,10 +475,14 @@ def show_update_modal(parent, updater: AppUpdater, update_info: dict, on_complet
         activeforeground="#f1f5f9",
         font=("Segoe UI", 9),
         padx=16,
-        pady=6,
+        pady=8,
         relief="flat",
         cursor="hand2",
         command=dialog.destroy,
     )
     btn_later.pack(side=tk.RIGHT)
+
+    dialog.bind("<Return>", lambda e: _start_update())
+    dialog.bind("<Escape>", lambda e: dialog.destroy())
+    btn_update.focus_set()
 
